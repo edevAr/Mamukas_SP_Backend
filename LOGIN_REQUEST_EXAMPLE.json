@@ -1,0 +1,17 @@
+{
+  "usernameOrEmail": "admin@example.com",
+  "password": "password123",
+  "device": "Browser",
+  "ip": "192.168.1.100"
+}
+
+// Ejemplos de valores para el campo "device":
+// - "Browser" (para navegadores web)
+// - "iPhone" (para aplicaciones iOS)
+// - "Android" (para aplicaciones Android)
+// - "Desktop App" (para aplicaciones de escritorio)
+// - "Mobile Web" (para navegadores móviles)
+// - "Tablet" (para tabletas)
+// - Cualquier otro valor descriptivo que identifique el tipo de dispositivo
+
+// El campo "ip" debe contener la dirección IP del dispositivo desde donde se realiza el login

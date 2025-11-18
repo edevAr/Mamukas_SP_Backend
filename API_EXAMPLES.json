@@ -1,0 +1,6 @@
+{
+  "usernameOrEmail": "admin@example.com",
+  "password": "password123",
+  "device": "Browser",
+  "ip": "192.168.1.100"
+}
