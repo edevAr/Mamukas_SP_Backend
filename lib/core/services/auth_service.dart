@@ -73,6 +73,23 @@ class AuthService {
   // Verificar si es manager
   static bool get isManager => hasPermission('MANAGER');
 
+  // Obtener el rol del usuario desde el token
+  static String? get role {
+    if (_accessToken == null) return null;
+    try {
+      final payload = JwtDecoder.decode(_accessToken!);
+      return payload['role']?.toString();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Verificar si es Employee
+  static bool get isEmployee {
+    final userRole = role;
+    return userRole != null && (userRole.toLowerCase() == 'employee' || userRole.toLowerCase() == 'empleado');
+  }
+
   // Verificar múltiples permisos (OR - cualquiera)
   static bool hasAnyPermission(List<String> permissions) {
     return permissions.any((p) => _permissions.contains(p));
@@ -140,6 +157,72 @@ class AuthService {
     } catch (e) {
       return {};
     }
+  }
+
+  // Obtener email del usuario desde el token
+  static String? get email {
+    if (_accessToken == null) return null;
+    try {
+      final payload = JwtDecoder.decode(_accessToken!);
+      return payload['email']?.toString();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Obtener idUser del usuario desde el token
+  static int? get idUser {
+    if (_accessToken == null) return null;
+    try {
+      final payload = JwtDecoder.decode(_accessToken!);
+      final idUserValue = payload['idUser'];
+      if (idUserValue is int) return idUserValue;
+      if (idUserValue is num) return idUserValue.toInt();
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Obtener nombre completo del usuario (si está disponible en el token)
+  static String? get fullName {
+    if (_accessToken == null) return null;
+    try {
+      final payload = JwtDecoder.decode(_accessToken!);
+      final name = payload['name']?.toString();
+      final lastName = payload['lastName']?.toString();
+      if (name != null && lastName != null) {
+        return '$name $lastName';
+      }
+      return name ?? lastName ?? _username;
+    } catch (e) {
+      return _username;
+    }
+  }
+
+  // Obtener nombre del rol formateado
+  static String get roleDisplayName {
+    if (isAdmin) return 'Administrador';
+    if (isManager) return 'Gerente';
+    if (isEmployee) return 'Empleado';
+    final userRole = role;
+    if (userRole != null) {
+      return userRole.substring(0, 1).toUpperCase() + userRole.substring(1).toLowerCase();
+    }
+    return 'Usuario';
+  }
+
+  // Obtener iniciales del usuario para el avatar
+  static String get initials {
+    final name = fullName ?? _username ?? 'U';
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    if (name.length >= 2) {
+      return name.substring(0, 2).toUpperCase();
+    }
+    return name[0].toUpperCase();
   }
 
   // Simular configuración de permisos para demo (temporal)

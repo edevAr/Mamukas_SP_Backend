@@ -128,6 +128,40 @@ class _StoreDetailPageState extends State<StoreDetailPage> {
     );
   }
 
+  void _deleteStore() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar Tienda'),
+        content: Text('¿Estás seguro de que deseas eliminar la tienda "${_store.name}"? Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Cerrar diálogo
+              Navigator.of(context).pop(); // Volver a la lista
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Tienda "${_store.name}" eliminada exitosamente'),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+              // TODO: Llamar a la API para eliminar la tienda
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -535,26 +569,54 @@ class _StoreDetailPageState extends State<StoreDetailPage> {
         ],
       );
     } else {
-      return SizedBox(
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: _toggleEditMode,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF007AFF),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+      return Column(
+        children: [
+          // Botón Editar
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _toggleEditMode,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF007AFF),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Editar',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ),
-          child: const Text(
-            'Editar',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+          const SizedBox(height: 12),
+          // Botón Eliminar
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _deleteStore,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                side: const BorderSide(color: Colors.red),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Eliminar',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       );
     }
   }

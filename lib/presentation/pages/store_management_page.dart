@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../widgets/widgets.dart';
 import 'store_detail_page.dart';
+import '../../core/services/auth_service.dart';
 
 class StoreManagementPage extends StatefulWidget {
   const StoreManagementPage({super.key});
@@ -10,13 +13,311 @@ class StoreManagementPage extends StatefulWidget {
 }
 
 class _StoreManagementPageState extends State<StoreManagementPage> {
-  final List<Store> _stores = Store.sampleStores();
-  List<Store> _filteredStores = [];
+  List<Store> _stores = [];
+  String _storeSearchQuery = '';
+  bool _isLoading = false;
+  
+  // Getter para tiendas filtradas según búsqueda
+  List<Store> get _filteredStores {
+    if (_storeSearchQuery.trim().isEmpty) {
+      return _stores;
+    }
+    final query = _storeSearchQuery.toLowerCase();
+    return _stores.where((store) {
+      return store.name.toLowerCase().contains(query) ||
+             store.location.toLowerCase().contains(query);
+    }).toList();
+  }
+  
+  // Paginación de tiendas
+  int _currentPage = 0;
+  bool _hasMorePages = true;
+  bool _isLoadingMore = false;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _filteredStores = _stores;
+    _scrollController.addListener(_onScroll);
+    _loadStores(page: 0, reset: true);
+  }
+  
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+  
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      // Cargar más cuando se está cerca del final (200px antes)
+      if (!_isLoadingMore && _hasMorePages && !_isLoading) {
+        _loadMoreStores();
+      }
+    }
+  }
+  
+  Future<void> _loadMoreStores() async {
+    if (_isLoadingMore || !_hasMorePages) return;
+    
+    setState(() {
+      _isLoadingMore = true;
+    });
+    
+    try {
+      await _loadStores(
+        page: _currentPage + 1,
+        size: 10,
+        reset: false,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadStores({int page = 0, int size = 10, bool reset = true}) async {
+    if (reset) {
+      setState(() => _isLoading = true);
+    }
+    
+    try {
+      final token = AuthService.accessToken;
+      if (token == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No hay token de autenticación disponible'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        if (reset) {
+          _stores = [];
+        }
+        return;
+      }
+
+      final response = await http.get(
+        Uri.parse('http://localhost:8080/api/stores?page=$page&size=$size'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final responseBody = response.body;
+        print('Stores API response status: ${response.statusCode}');
+        print('Stores API response body: $responseBody');
+        
+        if (responseBody.isEmpty) {
+          if (reset) {
+            _stores = [];
+          }
+          if (mounted) {
+            setState(() {
+              _hasMorePages = false;
+            });
+          }
+          return;
+        }
+        
+        final decodedData = json.decode(responseBody);
+        print('Decoded data type: ${decodedData.runtimeType}');
+
+        // La API devuelve un objeto JSON con paginación:
+        // {
+        //   "content": [...],           // JSON array con las tiendas
+        //   "totalElements": 300,
+        //   "currentPage": 0,
+        //   "pageSize": 10,
+        //   "hasNext": true,
+        //   "hasPrevious": false
+        // }
+        
+        List<dynamic> data;
+        bool hasNext = false;
+        
+        // Verificar que la respuesta es un objeto JSON (Map)
+        if (decodedData is Map) {
+          final responseObject = decodedData as Map;
+          
+          // Extraer el array de tiendas de la propiedad 'content'
+          if (responseObject.containsKey('content')) {
+            final contentArray = responseObject['content'];
+            if (contentArray is List) {
+              data = contentArray;
+            } else {
+              print('Error: content is not a List, type: ${contentArray.runtimeType}');
+              data = [];
+            }
+            
+            // Extraer información de paginación
+            if (responseObject.containsKey('hasNext')) {
+              hasNext = responseObject['hasNext'] == true;
+            }
+            
+            // Log de información de paginación para debugging
+            final totalElements = responseObject['totalElements'];
+            final currentPage = responseObject['currentPage'];
+            final pageSize = responseObject['pageSize'];
+            print('Paginated response - content: ${data.length} items, totalElements: $totalElements, currentPage: $currentPage, pageSize: $pageSize, hasNext: $hasNext');
+          } else {
+            print('Error: Response object does not contain "content" property. Available keys: ${responseObject.keys.toList()}');
+            if (reset) {
+              _stores = [];
+            }
+            if (mounted) {
+              setState(() {
+                _hasMorePages = false;
+              });
+            }
+            return;
+          }
+        } else {
+          print('Error: Response is not a JSON object. Type: ${decodedData.runtimeType}');
+          if (reset) {
+            _stores = [];
+          }
+          if (mounted) {
+            setState(() {
+              _hasMorePages = false;
+            });
+          }
+          return;
+        }
+        
+        print('Number of stores received: ${data.length}');
+        
+        final newStores = data.map((item) {
+          // Debug: imprimir todos los campos del item para ver qué viene del API
+          print('Store item completo: $item');
+          
+          // Mapear los datos del API al modelo Store
+          final status = item['status']?.toString() ?? 'Close';
+          final isOpen = status == 'Open' || status == 'Active';
+          
+          // Obtener el ID de la tienda (puede ser int o long)
+          final idStore = item['idStore'] is int 
+              ? item['idStore'] as int
+              : (item['idStore'] as num?)?.toInt();
+          
+          // Obtener el nombre, si no viene usar un nombre por defecto basado en el ID
+          final name = item['name']?.toString() ?? 'Tienda ${idStore ?? 'N/A'}';
+          
+          // Obtener la dirección
+          final address = item['address']?.toString() ?? 'Sin dirección';
+          
+          // Obtener horarios de negocio
+          final businessHours = item['businessHours']?.toString() ?? '';
+          
+          // Obtener el username del gerente - intentar varios campos posibles
+          String managerUsername = 'Sin gerente';
+          if (item['manager'] != null) {
+            managerUsername = item['manager'].toString();
+          } else if (item['managerUsername'] != null) {
+            managerUsername = item['managerUsername'].toString();
+          } else if (item['managerName'] != null) {
+            managerUsername = item['managerName'].toString();
+          } else if (item['username'] != null) {
+            managerUsername = item['username'].toString();
+          } else if (item['employee'] != null && item['employee'] is Map) {
+            final employee = item['employee'] as Map<String, dynamic>;
+            managerUsername = employee['username']?.toString() ?? 
+                             employee['name']?.toString() ?? 
+                             'Sin gerente';
+          } else if (item['user'] != null && item['user'] is Map) {
+            final user = item['user'] as Map<String, dynamic>;
+            managerUsername = user['username']?.toString() ?? 
+                             user['name']?.toString() ?? 
+                             'Sin gerente';
+          }
+          
+          print('Manager username extraído: $managerUsername');
+          
+          // Obtener el rating - intentar varios campos posibles
+          double rating = 0.0;
+          if (item['rating'] != null) {
+            rating = (item['rating'] is num) 
+                ? (item['rating'] as num).toDouble() 
+                : double.tryParse(item['rating'].toString()) ?? 0.0;
+          } else if (item['rate'] != null) {
+            rating = (item['rate'] is num) 
+                ? (item['rate'] as num).toDouble() 
+                : double.tryParse(item['rate'].toString()) ?? 0.0;
+          }
+          
+          return Store(
+            idStore: idStore,
+            name: name,
+            location: address,
+            manager: managerUsername,
+            icon: Icons.store,
+            color: Store.getStoreColor(idStore ?? 0),
+            monthlySales: 0.0, // No viene del API
+            isOpen: isOpen,
+            rating: rating,
+            businessHours: businessHours,
+          );
+        }).toList();
+
+        print('New stores mapped: ${newStores.length}');
+        
+        if (mounted) {
+          setState(() {
+            if (reset) {
+              _stores = newStores;
+            } else {
+              _stores.addAll(newStores);
+            }
+            _currentPage = page;
+            _hasMorePages = hasNext;
+            print('State updated, stores count: ${_stores.length}, hasMore: $_hasMorePages, page: $page');
+          });
+        }
+      } else {
+        print('Error loading stores: ${response.statusCode} - ${response.body}');
+        if (reset) {
+          _stores = [];
+        }
+        if (mounted) {
+          setState(() {
+            _hasMorePages = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al cargar tiendas: ${response.statusCode}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error loading stores: $e');
+      if (reset) {
+        _stores = [];
+      }
+      if (mounted) {
+        setState(() {
+          _hasMorePages = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cargar tiendas: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted && reset) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   Future<List<SearchResult>> _searchStores(String query) async {
@@ -56,27 +357,57 @@ class _StoreManagementPageState extends State<StoreManagementPage> {
           Navigator.of(context).pop();
         },
       ),
-      body: Column(
-        children: [
-          // Buscador
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: CustomSearchBar(
-              hintText: 'Buscar tiendas...',
-              onSearch: _searchStores,
-              onResultSelected: (result) {
-                final store = result.data as Store;
-                _showStoreDetail(store);
-              },
-            ),
-          ),
-          
-          // Lista de tiendas
-          Expanded(
-            child: CustomListView<Store>(
-              items: _filteredStores,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemBuilder: (store, index) {
+      body: _isLoading && _filteredStores.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                // Buscador
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: CustomSearchBar(
+                    hintText: 'Buscar tiendas...',
+                    onSearch: _searchStores,
+                    showOverlay: false,
+                    onQueryChanged: (query) {
+                      setState(() {
+                        _storeSearchQuery = query;
+                      });
+                    },
+                    onResultSelected: (result) {
+                      final store = result.data as Store;
+                      _showStoreDetail(store);
+                    },
+                  ),
+                ),
+                
+                // Lista de tiendas
+                Expanded(
+                  child: _filteredStores.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.store_outlined, size: 80, color: Colors.grey[400]),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No hay tiendas disponibles',
+                                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: () => _loadStores(page: 0, reset: true),
+                                child: const Text('Recargar'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: _filteredStores.length + (_isLoadingMore ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index < _filteredStores.length) {
+                              final store = _filteredStores[index];
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
@@ -184,11 +515,20 @@ class _StoreManagementPageState extends State<StoreManagementPage> {
                     ),
                   ),
                 );
-              },
+                            } else {
+                              // Indicador de carga al final
+                              return const Padding(
+                                padding: EdgeInsets.all(16.0),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
       bottomNavigationBar: CustomBottomBar(
         currentIndex: 1,
         onTap: (index) {
@@ -411,12 +751,15 @@ class _StoreManagementPageState extends State<StoreManagementPage> {
                                 monthlySales: double.parse(monthlySalesController.text),
                                 isOpen: isOpen,
                                 rating: double.parse(ratingController.text),
+                                businessHours: '',
                               );
                               
                               setState(() {
                                 _stores.add(newStore);
-                                _filteredStores = _stores;
                               });
+                              
+                              // TODO: Llamar a la API para crear la tienda
+                              // await _createStoreViaAPI(newStore);
                               
                               Navigator.of(context).pop();
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -559,6 +902,7 @@ class _StoreManagementPageState extends State<StoreManagementPage> {
 
 // Modelo de datos para tiendas
 class Store {
+  final int? idStore;
   final String name;
   final String location;
   final String manager;
@@ -567,9 +911,12 @@ class Store {
   final double monthlySales;
   final bool isOpen;
   final double rating;
+  final String businessHours;
+  final int? idCompany;
   final List<String> images;
 
   Store({
+    this.idStore,
     required this.name,
     required this.location,
     required this.manager,
@@ -578,12 +925,33 @@ class Store {
     required this.monthlySales,
     required this.isOpen,
     required this.rating,
+    this.businessHours = '',
+    this.idCompany,
     this.images = const [],
   });
+  
+  // Helper para obtener colores diferentes según el ID
+  static Color getStoreColor(int id) {
+    final colors = [
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.teal,
+      Colors.red,
+      Colors.indigo,
+      Colors.amber,
+    ];
+    return colors[id % colors.length];
+  }
+  
+  // Mantener compatibilidad con código existente
+  static Color _getStoreColor(int id) => getStoreColor(id);
 
   static List<Store> sampleStores() {
     return [
       Store(
+        idStore: 1,
         name: 'Mamuka Centro',
         location: 'Av. Principal 123, Centro Comercial Plaza',
         manager: 'Ana García',
@@ -592,6 +960,7 @@ class Store {
         monthlySales: 45000,
         isOpen: true,
         rating: 4.8,
+        businessHours: 'Lun-Vie: 9:00-18:00',
       ),
       Store(
         name: 'Mamuka Norte',

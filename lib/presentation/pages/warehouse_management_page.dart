@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import '../../core/services/auth_service.dart';
 import '../widgets/widgets.dart';
 import 'warehouse_detail_page.dart';
 import 'product_management_page.dart';
@@ -11,20 +14,285 @@ class WarehouseManagementPage extends StatefulWidget {
 }
 
 class _WarehouseManagementPageState extends State<WarehouseManagementPage> {
-  final List<Warehouse> _warehouses = Warehouse.sampleWarehouses();
-  List<Warehouse> _filteredWarehouses = [];
+  List<Warehouse> _warehouses = [];
+  String _warehouseSearchQuery = '';
+  bool _isLoading = true;
+  
+  // Getter para almacenes filtrados según búsqueda
+  List<Warehouse> get _filteredWarehouses {
+    if (_warehouseSearchQuery.trim().isEmpty) {
+      return _warehouses;
+    }
+    final query = _warehouseSearchQuery.toLowerCase();
+    return _warehouses.where((warehouse) {
+      return warehouse.name.toLowerCase().contains(query) ||
+             warehouse.location.toLowerCase().contains(query);
+    }).toList();
+  }
+  
+  // Paginación de almacenes
+  int _currentPage = 0;
+  bool _hasMorePages = true;
+  bool _isLoadingMore = false;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _filteredWarehouses = _warehouses;
+    _scrollController.addListener(_onScroll);
+    _loadWarehouses(page: 0, reset: true);
+  }
+  
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+  
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      // Cargar más cuando se está cerca del final (200px antes)
+      if (!_isLoadingMore && _hasMorePages && !_isLoading) {
+        _loadMoreWarehouses();
+      }
+    }
+  }
+  
+  Future<void> _loadMoreWarehouses() async {
+    if (_isLoadingMore || !_hasMorePages) return;
+    
+    setState(() {
+      _isLoadingMore = true;
+    });
+    
+    try {
+      await _loadWarehouses(
+        page: _currentPage + 1,
+        size: 10,
+        reset: false,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadWarehouses({int page = 0, int size = 10, bool reset = true}) async {
+    if (reset) {
+      setState(() => _isLoading = true);
+    }
+    
+    try {
+      final token = AuthService.accessToken;
+      if (token == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No hay token de autenticación disponible'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        if (reset) {
+          _warehouses = [];
+        }
+        return;
+      }
+
+      final response = await http.get(
+        Uri.parse('http://localhost:8080/api/warehouses?page=$page&size=$size'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final responseBody = response.body;
+        print('Warehouses API response status: ${response.statusCode}');
+        print('Warehouses API response body: $responseBody');
+
+        if (responseBody.isEmpty) {
+          print('Response body is empty');
+          if (reset) {
+            _warehouses = [];
+          }
+          if (mounted) {
+            setState(() {
+              _hasMorePages = false;
+            });
+          }
+          return;
+        }
+
+        final decodedData = json.decode(responseBody);
+        print('Decoded data type: ${decodedData.runtimeType}');
+
+        // La API devuelve un objeto JSON con paginación:
+        // {
+        //   "content": [...],           // JSON array con los almacenes
+        //   "totalElements": 300,
+        //   "currentPage": 0,
+        //   "pageSize": 10,
+        //   "hasNext": true,
+        //   "hasPrevious": false
+        // }
+        
+        List<dynamic> data;
+        bool hasNext = false;
+        
+        // Verificar que la respuesta es un objeto JSON (Map)
+        if (decodedData is Map) {
+          final responseObject = decodedData as Map;
+          
+          // Extraer el array de almacenes de la propiedad 'content'
+          if (responseObject.containsKey('content')) {
+            final contentArray = responseObject['content'];
+            if (contentArray is List) {
+              data = contentArray;
+            } else {
+              print('Error: content is not a List, type: ${contentArray.runtimeType}');
+              data = [];
+            }
+            
+            // Extraer información de paginación
+            if (responseObject.containsKey('hasNext')) {
+              hasNext = responseObject['hasNext'] == true;
+            }
+            
+            // Log de información de paginación para debugging
+            final totalElements = responseObject['totalElements'];
+            final currentPage = responseObject['currentPage'];
+            final pageSize = responseObject['pageSize'];
+            print('Paginated response - content: ${data.length} items, totalElements: $totalElements, currentPage: $currentPage, pageSize: $pageSize, hasNext: $hasNext');
+          } else {
+            print('Error: Response object does not contain "content" property. Available keys: ${responseObject.keys.toList()}');
+            if (reset) {
+              _warehouses = [];
+            }
+            if (mounted) {
+              setState(() {
+                _hasMorePages = false;
+              });
+            }
+            return;
+          }
+        } else {
+          print('Error: Response is not a JSON object. Type: ${decodedData.runtimeType}');
+          if (reset) {
+            _warehouses = [];
+          }
+          if (mounted) {
+            setState(() {
+              _hasMorePages = false;
+            });
+          }
+          return;
+        }
+
+        print('Number of warehouses received: ${data.length}');
+
+        final newWarehouses = data.map((item) {
+          print('Mapping warehouse item: $item');
+
+          // Obtener el ID del almacén
+          final idWarehouse = item['idWarehouse'] is int
+              ? item['idWarehouse'] as int
+              : (item['idWarehouse'] as num?)?.toInt();
+
+          // Obtener el nombre
+          final name = item['name']?.toString() ?? 'Almacén ${idWarehouse ?? 'N/A'}';
+
+          // Obtener la dirección
+          final address = item['address']?.toString() ?? 'Sin dirección';
+
+          // Obtener el estado
+          final status = item['status']?.toString() ?? 'Inactive';
+          final isActive = status == 'Active';
+
+          // Obtener el conteo de productos
+          int productCount = 0;
+          if (item['products'] != null) {
+            productCount = (item['products'] is int)
+                ? item['products'] as int
+                : (item['products'] as num?)?.toInt() ?? 0;
+          }
+
+          print('Mapped warehouse: $name - $address - products: $productCount - isActive: $isActive');
+
+          return Warehouse(
+            idWarehouse: idWarehouse,
+            name: name,
+            location: address,
+            icon: Icons.warehouse,
+            color: Warehouse._getWarehouseColor(idWarehouse ?? 0),
+            productCount: productCount,
+            isActive: isActive,
+            capacity: 0, // No viene del API
+          );
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            if (reset) {
+              _warehouses = newWarehouses;
+            } else {
+              _warehouses.addAll(newWarehouses);
+            }
+            _currentPage = page;
+            _hasMorePages = hasNext;
+            print('State updated, warehouses count: ${_warehouses.length}, hasMore: $_hasMorePages, page: $page');
+          });
+        }
+      } else {
+        print('Error loading warehouses: ${response.statusCode} - ${response.body}');
+        if (reset) {
+          _warehouses = [];
+        }
+        if (mounted) {
+          setState(() {
+            _hasMorePages = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al cargar almacenes: ${response.statusCode}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error loading warehouses: $e');
+      if (reset) {
+        _warehouses = [];
+      }
+      if (mounted) {
+        setState(() {
+          _hasMorePages = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cargar almacenes: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted && reset) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   Future<List<SearchResult>> _searchWarehouses(String query) async {
     // Simular búsqueda con delay
     await Future.delayed(const Duration(milliseconds: 300));
     
-    final filtered = _warehouses
+    final filtered = _filteredWarehouses
         .where((warehouse) => warehouse.name.toLowerCase().contains(query.toLowerCase()))
         .take(5)
         .map((warehouse) => SearchResult(
@@ -39,11 +307,13 @@ class _WarehouseManagementPageState extends State<WarehouseManagementPage> {
   }
 
   void _showWarehouseDetail(Warehouse warehouse) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => WarehouseDetailPage(warehouse: warehouse),
-      ),
-    );
+    if (warehouse.idWarehouse != null) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => WarehouseDetailPage(idWarehouse: warehouse.idWarehouse!),
+        ),
+      );
+    }
   }
 
   @override
@@ -55,27 +325,59 @@ class _WarehouseManagementPageState extends State<WarehouseManagementPage> {
           Navigator.of(context).pop();
         },
       ),
-      body: Column(
-        children: [
-          // Buscador
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: CustomSearchBar(
-              hintText: 'Buscar almacenes...',
-              onSearch: _searchWarehouses,
-              onResultSelected: (result) {
-                final warehouse = result.data as Warehouse;
-                _showWarehouseDetail(warehouse);
-              },
-            ),
-          ),
-          
-          // Lista de almacenes
-          Expanded(
-            child: CustomListView<Warehouse>(
-              items: _filteredWarehouses,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemBuilder: (warehouse, index) {
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                // Buscador
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: CustomSearchBar(
+                    hintText: 'Buscar almacenes...',
+                    onSearch: _searchWarehouses,
+                    showOverlay: false,
+                    onQueryChanged: (query) {
+                      setState(() {
+                        _warehouseSearchQuery = query;
+                      });
+                    },
+                    onResultSelected: (result) {
+                      final warehouse = result.data as Warehouse;
+                      _showWarehouseDetail(warehouse);
+                    },
+                  ),
+                ),
+                
+                // Lista de almacenes
+                Expanded(
+                  child: _isLoading && _filteredWarehouses.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : _filteredWarehouses.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.warehouse_outlined, size: 80, color: Colors.grey[400]),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No hay almacenes disponibles',
+                                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ElevatedButton(
+                                    onPressed: () => _loadWarehouses(page: 0, reset: true),
+                                    child: const Text('Recargar'),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              controller: _scrollController,
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _filteredWarehouses.length + (_isLoadingMore ? 1 : 0),
+                              itemBuilder: (context, index) {
+                                if (index < _filteredWarehouses.length) {
+                                  final warehouse = _filteredWarehouses[index];
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
@@ -165,11 +467,20 @@ class _WarehouseManagementPageState extends State<WarehouseManagementPage> {
                     ),
                   ),
                 );
-              },
+                                } else {
+                                  // Indicador de carga al final
+                                  return const Padding(
+                                    padding: EdgeInsets.all(16.0),
+                                    child: Center(
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
       bottomNavigationBar: CustomBottomBar(
         currentIndex: 0,
         onTap: (index) {
@@ -505,7 +816,6 @@ class _WarehouseManagementPageState extends State<WarehouseManagementPage> {
                               
                               setState(() {
                                 _warehouses.add(newWarehouse);
-                                _filteredWarehouses = _warehouses;
                               });
                               
                               Navigator.of(context).pop();
@@ -783,6 +1093,7 @@ class _WarehouseManagementPageState extends State<WarehouseManagementPage> {
 
 // Modelo de datos para almacenes
 class Warehouse {
+  final int? idWarehouse;
   final String name;
   final String location;
   final IconData icon;
@@ -793,6 +1104,7 @@ class Warehouse {
   final List<String> images;
 
   Warehouse({
+    this.idWarehouse,
     required this.name,
     required this.location,
     required this.icon,
@@ -802,10 +1114,28 @@ class Warehouse {
     required this.capacity,
     this.images = const [],
   });
+  
+  // Helper para obtener colores diferentes según el ID
+  static Color _getWarehouseColor(int id) {
+    final colors = [
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.teal,
+      Colors.red,
+      Colors.indigo,
+      Colors.amber,
+      Colors.pink,
+      Colors.cyan,
+    ];
+    return colors[id % colors.length];
+  }
 
   static List<Warehouse> sampleWarehouses() {
     return [
       Warehouse(
+        idWarehouse: 1,
         name: 'Almacén Central',
         location: 'Av. Principal 123, Centro',
         icon: Icons.warehouse,
@@ -815,6 +1145,7 @@ class Warehouse {
         capacity: 85,
       ),
       Warehouse(
+        idWarehouse: 2,
         name: 'Almacén Norte',
         location: 'Calle Norte 456, Zona Industrial',
         icon: Icons.business,
@@ -824,6 +1155,7 @@ class Warehouse {
         capacity: 72,
       ),
       Warehouse(
+        idWarehouse: 3,
         name: 'Almacén Sur',
         location: 'Av. Sur 789, Distrito Sur',
         icon: Icons.store,
@@ -833,6 +1165,7 @@ class Warehouse {
         capacity: 58,
       ),
       Warehouse(
+        idWarehouse: 4,
         name: 'Almacén Este',
         location: 'Calle Este 321, Zona Este',
         icon: Icons.inventory,
@@ -842,6 +1175,7 @@ class Warehouse {
         capacity: 0,
       ),
       Warehouse(
+        idWarehouse: 5,
         name: 'Almacén Temporal',
         location: 'Depósito Temporal, Zona Libre',
         icon: Icons.home_work,
@@ -851,6 +1185,7 @@ class Warehouse {
         capacity: 25,
       ),
       Warehouse(
+        idWarehouse: 6,
         name: 'Almacén Express',
         location: 'Hub Logístico, Aeropuerto',
         icon: Icons.local_shipping,

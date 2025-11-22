@@ -10,6 +10,7 @@ class CustomGridView<T> extends StatelessWidget {
   final EdgeInsets padding;
   final bool shrinkWrap;
   final ScrollPhysics? physics;
+  final ScrollController? controller;
   final bool isLoading;
   final Widget? emptyWidget;
   final Widget? errorWidget;
@@ -26,6 +27,7 @@ class CustomGridView<T> extends StatelessWidget {
     this.padding = const EdgeInsets.all(16),
     this.shrinkWrap = false,
     this.physics,
+    this.controller,
     this.isLoading = false,
     this.emptyWidget,
     this.errorWidget,
@@ -43,6 +45,7 @@ class CustomGridView<T> extends StatelessWidget {
     }
 
     final gridView = GridView.builder(
+      controller: controller,
       padding: padding,
       shrinkWrap: shrinkWrap,
       physics: physics,

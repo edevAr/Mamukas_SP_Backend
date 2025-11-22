@@ -5,20 +5,24 @@ class CustomSearchBar extends StatefulWidget {
   final String hintText;
   final Future<List<SearchResult>> Function(String query) onSearch;
   final void Function(SearchResult result) onResultSelected;
+  final void Function(String query)? onQueryChanged;
   final Widget Function(SearchResult result)? resultBuilder;
   final Duration debounceTime;
   final int maxResults;
   final bool showRecentSearches;
+  final bool showOverlay;
 
   const CustomSearchBar({
     super.key,
     this.hintText = 'Buscar...',
     required this.onSearch,
     required this.onResultSelected,
+    this.onQueryChanged,
     this.resultBuilder,
     this.debounceTime = const Duration(milliseconds: 300),
     this.maxResults = 10,
     this.showRecentSearches = true,
+    this.showOverlay = true,
   });
 
   @override
@@ -50,6 +54,8 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
   }
 
   void _onFocusChanged() {
+    if (!widget.showOverlay) return;
+    
     if (_focusNode.hasFocus) {
       _showOverlay();
     } else {
@@ -58,6 +64,9 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
   }
 
   void _onQueryChanged(String query) {
+    // Notificar cambio de query inmediatamente para filtrado en tiempo real
+    widget.onQueryChanged?.call(query);
+    
     _debounceTimer?.cancel();
     
     if (query.trim().isEmpty) {
@@ -110,7 +119,7 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
 
   OverlayEntry _createOverlayEntry() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return OverlayEntry(
       builder: (context) => Positioned(
         width: MediaQuery.of(context).size.width - 32,
@@ -235,6 +244,7 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
                     ),
                     onPressed: () {
                       _controller.clear();
+                      widget.onQueryChanged?.call('');
                       setState(() {
                         _searchResults.clear();
                       });

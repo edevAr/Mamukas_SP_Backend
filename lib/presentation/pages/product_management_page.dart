@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import '../../core/services/auth_service.dart';
 import '../widgets/widgets.dart';
 import 'product_detail_page.dart';
 
@@ -10,20 +13,296 @@ class ProductManagementPage extends StatefulWidget {
 }
 
 class _ProductManagementPageState extends State<ProductManagementPage> {
-  final List<Product> _products = Product.sampleProducts();
-  List<Product> _filteredProducts = [];
+  List<Product> _products = [];
+  String _productSearchQuery = '';
+  bool _isLoading = true;
+  
+  // Getter para productos filtrados según búsqueda
+  List<Product> get _filteredProducts {
+    if (_productSearchQuery.trim().isEmpty) {
+      return _products;
+    }
+    final query = _productSearchQuery.toLowerCase();
+    return _products.where((product) {
+      return product.name.toLowerCase().contains(query);
+    }).toList();
+  }
+  
+  // Paginación de productos
+  int _currentPage = 0;
+  bool _hasMorePages = true;
+  bool _isLoadingMore = false;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _filteredProducts = _products;
+    _scrollController.addListener(_onScroll);
+    _loadProducts(page: 0, reset: true);
+  }
+  
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+  
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      // Cargar más cuando se está cerca del final (200px antes)
+      if (!_isLoadingMore && _hasMorePages && !_isLoading) {
+        _loadMoreProducts();
+      }
+    }
+  }
+  
+  Future<void> _loadMoreProducts() async {
+    if (_isLoadingMore || !_hasMorePages) return;
+    
+    setState(() {
+      _isLoadingMore = true;
+    });
+    
+    try {
+      await _loadProducts(
+        page: _currentPage + 1,
+        size: 10,
+        reset: false,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadProducts({int page = 0, int size = 10, bool reset = true}) async {
+    if (reset) {
+      setState(() => _isLoading = true);
+    }
+    
+    try {
+      final token = AuthService.accessToken;
+      if (token == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No hay token de autenticación disponible'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        if (reset) {
+          _products = [];
+        }
+        return;
+      }
+
+      final response = await http.get(
+        Uri.parse('http://localhost:8080/api/products?page=$page&size=$size'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final responseBody = response.body;
+        print('Products API response status: ${response.statusCode}');
+        print('Products API response body: $responseBody');
+
+        if (responseBody.isEmpty) {
+          print('Response body is empty');
+          if (reset) {
+            _products = [];
+          }
+          if (mounted) {
+            setState(() {
+              _hasMorePages = false;
+            });
+          }
+          return;
+        }
+
+        final decodedData = json.decode(responseBody);
+        print('Decoded data type: ${decodedData.runtimeType}');
+
+        // La API devuelve un objeto JSON con paginación:
+        // {
+        //   "content": [...],           // JSON array con los productos
+        //   "totalElements": 300,
+        //   "currentPage": 0,
+        //   "pageSize": 10,
+        //   "hasNext": true,
+        //   "hasPrevious": false
+        // }
+        
+        List<dynamic> data;
+        bool hasNext = false;
+        
+        // Verificar que la respuesta es un objeto JSON (Map)
+        if (decodedData is Map) {
+          final responseObject = decodedData as Map;
+          
+          // Extraer el array de productos de la propiedad 'content'
+          if (responseObject.containsKey('content')) {
+            final contentArray = responseObject['content'];
+            if (contentArray is List) {
+              data = contentArray;
+            } else {
+              print('Error: content is not a List, type: ${contentArray.runtimeType}');
+              data = [];
+            }
+            
+            // Extraer información de paginación
+            if (responseObject.containsKey('hasNext')) {
+              hasNext = responseObject['hasNext'] == true;
+            }
+            
+            // Log de información de paginación para debugging
+            final totalElements = responseObject['totalElements'];
+            final currentPage = responseObject['currentPage'];
+            final pageSize = responseObject['pageSize'];
+            print('Paginated response - content: ${data.length} items, totalElements: $totalElements, currentPage: $currentPage, pageSize: $pageSize, hasNext: $hasNext');
+          } else {
+            print('Error: Response object does not contain "content" property. Available keys: ${responseObject.keys.toList()}');
+            if (reset) {
+              _products = [];
+            }
+            if (mounted) {
+              setState(() {
+                _hasMorePages = false;
+              });
+            }
+            return;
+          }
+        } else {
+          print('Error: Response is not a JSON object. Type: ${decodedData.runtimeType}');
+          if (reset) {
+            _products = [];
+          }
+          if (mounted) {
+            setState(() {
+              _hasMorePages = false;
+            });
+          }
+          return;
+        }
+
+        print('Number of products received: ${data.length}');
+
+        final newProducts = data.map((item) {
+          print('Mapping product item: $item');
+
+          // Obtener el ID del producto
+          final idProduct = item['idProduct'] is int
+              ? item['idProduct'] as int
+              : (item['idProduct'] as num?)?.toInt();
+
+          // Obtener el nombre
+          final name = item['name']?.toString() ?? 'Producto ${idProduct ?? 'N/A'}';
+
+          // Obtener el precio
+          double price = 0.0;
+          if (item['price'] != null) {
+            price = (item['price'] is num)
+                ? (item['price'] as num).toDouble()
+                : double.tryParse(item['price'].toString()) ?? 0.0;
+          }
+
+          // Obtener el estado
+          final status = item['status']?.toString() ?? 'Inactive';
+          final isAvailable = status == 'Active';
+
+          // Obtener fecha de expiración
+          final expirationDate = item['expirationDate']?.toString();
+
+          // Obtener stock si está disponible
+          int stock = 0;
+          if (item['stock'] != null) {
+            stock = (item['stock'] is int)
+                ? item['stock'] as int
+                : (item['stock'] as num?)?.toInt() ?? 0;
+          }
+
+          // Mapear a Product con valores por defecto para campos que no vienen del API
+          return Product(
+            name: name,
+            category: 'General', // No viene del API
+            brand: 'Mamuka', // No viene del API
+            description: expirationDate != null
+                ? 'Fecha de expiración: $expirationDate'
+                : 'Producto ${name}',
+            icon: Icons.inventory_2_outlined,
+            color: Product._getProductColor(idProduct ?? 0),
+            price: price,
+            stock: stock,
+            isAvailable: isAvailable,
+          );
+        }).toList();
+
+        print('New products mapped: ${newProducts.length}');
+
+        if (mounted) {
+          setState(() {
+            if (reset) {
+              _products = newProducts;
+            } else {
+              _products.addAll(newProducts);
+            }
+            _currentPage = page;
+            _hasMorePages = hasNext;
+            print('State updated, products count: ${_products.length}, hasMore: $_hasMorePages, page: $page');
+          });
+        }
+      } else {
+        print('Error loading products: ${response.statusCode} - ${response.body}');
+        if (reset) {
+          _products = [];
+        }
+        if (mounted) {
+          setState(() {
+            _hasMorePages = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al cargar productos: ${response.statusCode}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error loading products: $e');
+      if (reset) {
+        _products = [];
+      }
+      if (mounted) {
+        setState(() {
+          _hasMorePages = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cargar productos: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted && reset) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   Future<List<SearchResult>> _searchProducts(String query) async {
     // Simular búsqueda con delay
     await Future.delayed(const Duration(milliseconds: 300));
     
-    final filtered = _products
+    final filtered = _filteredProducts
         .where((product) => product.name.toLowerCase().contains(query.toLowerCase()))
         .take(5)
         .map((product) => SearchResult(
@@ -56,122 +335,161 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
           Navigator.of(context).pop();
         },
       ),
-      body: Column(
-        children: [
-          // Buscador
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: CustomSearchBar(
-              hintText: 'Buscar productos...',
-              onSearch: _searchProducts,
-              onResultSelected: (result) {
-                final product = result.data as Product;
-                _showProductDetail(product);
-              },
-            ),
-          ),
-          
-          // Lista de productos
-          Expanded(
-            child: CustomListView<Product>(
-              items: _filteredProducts,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemBuilder: (product, index) {
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: product.color.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        product.icon,
-                        color: product.color,
-                        size: 28,
-                      ),
-                    ),
-                    title: Text(
-                      product.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Text(
-                          '${product.brand} • ${product.category}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
+      body: _isLoading && _filteredProducts.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                // Buscador
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: CustomSearchBar(
+                    hintText: 'Buscar productos...',
+                    onSearch: _searchProducts,
+                    showOverlay: false,
+                    onQueryChanged: (query) {
+                      setState(() {
+                        _productSearchQuery = query;
+                      });
+                    },
+                    onResultSelected: (result) {
+                      final product = result.data as Product;
+                      _showProductDetail(product);
+                    },
+                  ),
+                ),
+                
+                // Lista de productos
+                Expanded(
+                  child: _filteredProducts.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey[400]),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No hay productos disponibles',
+                                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: () => _loadProducts(page: 0, reset: true),
+                                child: const Text('Recargar'),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Text(
-                              '\$${product.price.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF007AFF),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: product.isAvailable 
-                                    ? Colors.green.withOpacity(0.1)
-                                    : Colors.red.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                'Stock: ${product.stock}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: product.isAvailable 
-                                      ? Colors.green 
-                                      : Colors.red,
-                                  fontWeight: FontWeight.w500,
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: _filteredProducts.length + (_isLoadingMore ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index < _filteredProducts.length) {
+                              final product = _filteredProducts[index];
+                              return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                leading: Container(
+                                  width: 50,
+                                  height: 50,
+                                  decoration: BoxDecoration(
+                                    color: product.color.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(
+                                    product.icon,
+                                    color: product.color,
+                                    size: 28,
+                                  ),
+                                ),
+                                title: Text(
+                                  product.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${product.brand} • ${product.category}',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          '\$${product.price.toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF007AFF),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: product.isAvailable 
+                                                ? Colors.green.withOpacity(0.1)
+                                                : Colors.red.withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Text(
+                                            'Stock: ${product.stock}',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: product.isAvailable 
+                                                  ? Colors.green 
+                                                  : Colors.red,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                trailing: const Icon(
+                                  Icons.arrow_forward_ios,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                onTap: () => _showProductDetail(product),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                tileColor: Theme.of(context).brightness == Brightness.dark
+                                    ? const Color(0xFF2C2C2E)
+                                    : const Color(0xFFF8F9FA),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
                                 ),
                               ),
-                            ),
-                          ],
+                            );
+                            } else {
+                              // Indicador de carga al final
+                              return const Padding(
+                                padding: EdgeInsets.all(16.0),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+                          },
                         ),
-                      ],
-                    ),
-                    trailing: const Icon(
-                      Icons.arrow_forward_ios,
-                      size: 16,
-                      color: Colors.grey,
-                    ),
-                    onTap: () => _showProductDetail(product),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    tileColor: Theme.of(context).brightness == Brightness.dark
-                        ? const Color(0xFF2C2C2E)
-                        : const Color(0xFFF8F9FA),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                  ),
-                );
-              },
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
       bottomNavigationBar: CustomBottomBar(
         currentIndex: 2,
         onTap: (index) {
@@ -203,11 +521,13 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateProductForm,
-        backgroundColor: const Color(0xFF007AFF),
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+      floatingActionButton: (AuthService.isAdmin || AuthService.isEmployee)
+          ? FloatingActionButton(
+              onPressed: _showCreateProductForm,
+              backgroundColor: const Color(0xFF007AFF),
+              child: const Icon(Icons.add, color: Colors.white),
+            )
+          : null,
     );
   }
 
@@ -411,7 +731,6 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
                               
                               setState(() {
                                 _products.add(newProduct);
-                                _filteredProducts = _products;
                               });
                               
                               Navigator.of(context).pop();
@@ -578,6 +897,23 @@ class Product {
     required this.isAvailable,
     this.images = const [],
   });
+  
+  // Helper para obtener colores diferentes según el ID
+  static Color _getProductColor(int id) {
+    final colors = [
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.teal,
+      Colors.red,
+      Colors.indigo,
+      Colors.amber,
+      Colors.pink,
+      Colors.cyan,
+    ];
+    return colors[id % colors.length];
+  }
 
   static List<Product> sampleProducts() {
     return [
