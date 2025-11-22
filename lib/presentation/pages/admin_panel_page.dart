@@ -6,6 +6,7 @@ import '../widgets/widgets.dart';
 import '../../domain/entities/user.dart';
 import '../../core/constants/user_status.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/constants/api_constants.dart';
 import '../bloc/user_bloc.dart';
 import '../bloc/user_event.dart';
 import '../bloc/user_state.dart';
@@ -278,7 +279,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/users?page=$page&size=$size'),
+        Uri.parse(ApiConstants.users(page: page, size: size)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -567,7 +568,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/stores?page=$page&size=$size'),
+        Uri.parse(ApiConstants.stores(page: page, size: size)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -818,7 +819,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/warehouses?page=$page&size=$size'),
+        Uri.parse(ApiConstants.warehouses(page: page, size: size)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -1020,7 +1021,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/products?page=$page&size=$size'),
+        Uri.parse(ApiConstants.products(page: page, size: size)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -1856,7 +1857,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
                 try {
                   // Llamar a la API para actualizar
                   final response = await http.put(
-                    Uri.parse('http://localhost:8080/api/stores/${store.idStore}'),
+                    Uri.parse(ApiConstants.storeById(store.idStore!)),
                     headers: {
                       'Authorization': 'Bearer $token',
                       'Content-Type': 'application/json',
@@ -1958,7 +1959,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
               try {
                 // Llamar a la API para eliminar
                 final response = await http.delete(
-                  Uri.parse('http://localhost:8080/api/stores/${store.idStore}'),
+                  Uri.parse(ApiConstants.storeById(store.idStore!)),
                   headers: {
                     'Authorization': 'Bearer $token',
                     'Content-Type': 'application/json',

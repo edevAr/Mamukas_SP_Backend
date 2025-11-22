@@ -5,6 +5,7 @@ import '../widgets/widgets.dart';
 import '../../domain/entities/user.dart';
 import '../../core/constants/user_status.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/constants/api_constants.dart';
 import 'user_detail_page.dart';
 
 class UserControlPanelPage extends StatefulWidget {
@@ -106,7 +107,7 @@ class _UserControlPanelPageState extends State<UserControlPanelPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/users?page=$page&size=$size'),
+        Uri.parse(ApiConstants.users(page: page, size: size)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:universal_html/html.dart' as html;
 import '../../core/services/auth_service.dart';
+import '../../core/constants/api_constants.dart';
 
 class DemoLoginPage extends StatefulWidget {
   const DemoLoginPage({super.key});
@@ -107,7 +108,7 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
 
       // Hacer la petición POST al endpoint
       final response = await http.post(
-        Uri.parse('http://localhost:8080/api/auth/login'),
+        Uri.parse(ApiConstants.authLogin),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -216,7 +217,7 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
         
         if (e.toString().contains('SocketException') || 
             e.toString().contains('Connection refused')) {
-          errorMessage = 'No se puede conectar al servidor. Verifica que esté ejecutándose en localhost:8080';
+          errorMessage = 'No se puede conectar al servidor. Verifica la conexión a internet.';
         } else if (e.toString().contains('TimeoutException')) {
           errorMessage = 'Tiempo de espera agotado. Verifica la conexión.';
         } else {

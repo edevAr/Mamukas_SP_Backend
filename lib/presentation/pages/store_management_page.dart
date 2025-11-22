@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../widgets/widgets.dart';
 import 'store_detail_page.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/constants/api_constants.dart';
 
 class StoreManagementPage extends StatefulWidget {
   const StoreManagementPage({super.key});
@@ -103,7 +104,7 @@ class _StoreManagementPageState extends State<StoreManagementPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/stores?page=$page&size=$size'),
+        Uri.parse(ApiConstants.stores(page: page, size: size)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',

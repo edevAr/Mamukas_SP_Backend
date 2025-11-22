@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../core/services/auth_service.dart';
+import '../../core/constants/api_constants.dart';
 import '../widgets/widgets.dart';
 import 'warehouse_detail_page.dart';
 import 'product_management_page.dart';
@@ -104,7 +105,7 @@ class _WarehouseManagementPageState extends State<WarehouseManagementPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/warehouses?page=$page&size=$size'),
+        Uri.parse(ApiConstants.warehouses(page: page, size: size)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',

@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../widgets/widgets.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/constants/api_constants.dart';
 
 class WarehouseDetailPage extends StatefulWidget {
   final int idWarehouse;
@@ -117,7 +118,7 @@ class _WarehouseDetailPageState extends State<WarehouseDetailPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/warehouses/${widget.idWarehouse}/details'),
+        Uri.parse(ApiConstants.warehouseDetails(widget.idWarehouse)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -1249,7 +1250,7 @@ class _WarehouseDetailPageState extends State<WarehouseDetailPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/users?page=0&size=100'),
+        Uri.parse(ApiConstants.users(page: 0, size: 100)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -1433,7 +1434,7 @@ class _WarehouseDetailPageState extends State<WarehouseDetailPage> {
       );
       
       final response = await http.post(
-        Uri.parse('http://localhost:8080/api/warehouses/transfer'),
+        Uri.parse(ApiConstants.warehouseTransfer()),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',

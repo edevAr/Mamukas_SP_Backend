@@ -5,6 +5,7 @@ import 'package:jwt_decoder/jwt_decoder.dart';
 import '../widgets/widgets.dart';
 import '../widgets/permission_widget.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/constants/api_constants.dart';
 import 'demo_login_page.dart';
 import 'warehouse_management_page.dart' show Warehouse, WarehouseManagementPage;
 import 'store_management_page.dart' show Store, StoreManagementPage;
@@ -250,7 +251,7 @@ class _UIDemoPageState extends State<UIDemoPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/products?page=$page&size=10'),
+        Uri.parse(ApiConstants.products(page: page, size: 10)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -466,7 +467,7 @@ class _UIDemoPageState extends State<UIDemoPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/stores?page=$page&size=10'),
+        Uri.parse(ApiConstants.stores(page: page, size: 10)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -660,7 +661,7 @@ class _UIDemoPageState extends State<UIDemoPage> {
       print('Token available: ${token != null}');
 
       final response = await http.post(
-        Uri.parse('http://localhost:8080/api/customers'),
+        Uri.parse(ApiConstants.customers()),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -744,7 +745,7 @@ class _UIDemoPageState extends State<UIDemoPage> {
       }
 
       final response = await http.post(
-        Uri.parse('http://localhost:8080/api/sales'),
+        Uri.parse(ApiConstants.sales()),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -3143,7 +3144,7 @@ class _UIDemoPageState extends State<UIDemoPage> {
       print('Generating sales report with: $requestBody');
       
       final response = await http.post(
-        Uri.parse('http://localhost:8080/api/sales/report'),
+        Uri.parse(ApiConstants.salesReport()),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -3993,7 +3994,7 @@ class _UIDemoPageState extends State<UIDemoPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/warehouses?page=0&size=100'),
+        Uri.parse(ApiConstants.warehouses(page: 0, size: 100)),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -4226,7 +4227,7 @@ class _UIDemoPageState extends State<UIDemoPage> {
       print('Generating transfers report with: $requestBody');
       
       final response = await http.post(
-        Uri.parse('http://localhost:8080/api/warehouses/transfer-report'),
+        Uri.parse(ApiConstants.warehouseTransferReport()),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
